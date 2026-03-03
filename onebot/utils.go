@@ -5,8 +5,10 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	log "log"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -105,11 +107,16 @@ func SaveAudioFile(silkBytes []byte) (path string, err error) {
 		return "", err
 	}
 	
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	randomNumber := r.Intn(1000)
 	timestamp := time.Now().Unix()
 	fileName := fmt.Sprintf("%d_%d.mp3", randomNumber, timestamp)
-	targetPath := "./audio/" + fileName
+	targetPath := filepath.Dir(exePath) + "/audio/" + fileName
 	err = os.WriteFile(targetPath, mp3Bytes, 0644)
 	if err != nil {
 		return "", err
@@ -146,4 +153,29 @@ func SilkToMp3(silkBytes []byte) ([]byte, error) {
 	}
 	
 	return out.Bytes(), nil
+}
+
+func HandleMsg(jsonData []byte, m *WechatMessage) ([]byte, error) {
+	err := json.Unmarshal(jsonData, m)
+	if err != nil {
+		log.Printf("解析消息失败: %v\n", err)
+		return nil, err
+	}
+	myWechatId = m.SelfID
+	if m.GroupId != "" {
+		userID2NicknameMap.Store(m.GroupId+"_"+m.UserID, m.Sender.Nickname)
+	}
+	
+	for _, msg := range m.Message {
+		if msg.Type == "record" {
+			path, err := SaveAudioFile(msg.Data.Media)
+			if err != nil {
+				log.Printf("保存音频失败: %v\n", err)
+				return nil, err
+			}
+			msg.Data.URL = path
+			msg.Data.Media = nil
+		}
+	}
+	return json.Marshal(m)
 }

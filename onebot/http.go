@@ -86,21 +86,15 @@ func SendHttpReq(msg map[string]interface{}) {
 		return
 	}
 	
-	fmt.Printf("发送数据: %s\n", string(jsonData))
 	m := new(WechatMessage)
-	err = json.Unmarshal(jsonData, m)
+	jsonReq, err := HandleMsg(jsonData, m)
 	if err != nil {
-		log.Printf("解析消息失败: %v\n", err)
+		log.Printf("JSON 序列化失败: %v\n", err)
 		return
 	}
-	myWechatId = m.SelfID
 	
-	if m.GroupId != "" {
-		userID2NicknameMap.Store(m.GroupId+"_"+m.UserID, m.Sender.Nickname)
-	}
-	
-	// 4. 创建 POST 请求
-	req, err := http.NewRequest("POST", config.SendURL, bytes.NewBuffer(jsonData))
+	fmt.Printf("发送数据: %s\n", string(jsonReq))
+	req, err := http.NewRequest("POST", config.SendURL, bytes.NewBuffer(jsonReq))
 	if err != nil {
 		log.Printf("创建请求失败: %v\n", err)
 		return

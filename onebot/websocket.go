@@ -96,36 +96,14 @@ func SendWebSocketMsg(msg map[string]interface{}) {
 		return
 	}
 	
-	fmt.Printf("发送数据: %s\n", string(jsonData))
 	m := new(WechatMessage)
-	err = json.Unmarshal(jsonData, m)
-	if err != nil {
-		log.Printf("解析消息失败: %v\n", err)
-		return
-	}
-	myWechatId = m.SelfID
-	if m.GroupId != "" {
-		userID2NicknameMap.Store(m.GroupId+"_"+m.UserID, m.Sender.Nickname)
-	}
-	
-	for _, msg := range m.Message {
-		if msg.Type == "record" {
-			path, err := SaveAudioFile(msg.Data.Media)
-			if err != nil {
-				log.Printf("保存音频失败: %v\n", err)
-				return
-			}
-			msg.Data.URL = path
-			msg.Data.Media = nil
-		}
-	}
-	
-	jsonReq, err := json.Marshal(m)
+	jsonReq, err := HandleMsg(jsonData, m)
 	if err != nil {
 		log.Printf("JSON 序列化失败: %v\n", err)
 		return
 	}
 	
+	fmt.Printf("发送数据: %s\n", string(jsonReq))
 	err = conn.WriteMessage(websocket.TextMessage, jsonReq)
 	if err != nil {
 		log.Printf("发送消息失败: %v\n", err)
