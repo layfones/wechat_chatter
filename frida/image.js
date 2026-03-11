@@ -108,24 +108,27 @@ var insertMsgAddr = ptr(0);
 var sendMsgType = "";
 
 // 图片消息全局变量
+var imageCallbackFuncAddr = baseAddr.add(0x245D110);
+var imgProtobufAddr = imageCallbackFuncAddr.add(0x54);
+var patchImgProtobufFunc1 = imageCallbackFuncAddr.add(0x10);
+var patchImgProtobufFunc1Byte;
+var patchImgProtobufFunc2 = imageCallbackFuncAddr.add(0x30);
+var patchImgProtobufFunc2Byte;
+var imgProtobufDeleteAddr = imageCallbackFuncAddr.add(0x6c);
+var imgProtobufDeleteAddrByte;
+
 var uploadImageAddr = baseAddr.add(0x49459C8);
-var imgProtobufAddr = baseAddr.add(0x245D164);
-var patchImgProtobufFunc1 = baseAddr.add(0x245D120)
-var patchImgProtobufFunc2 = baseAddr.add(0x245D140);
-var imgProtobufDeleteAddr = baseAddr.add(0x245D17C);
 var CndOnCompleteAddr = baseAddr.add(0x36BAFC0);
 var imgMessageCallbackFunc1 = baseAddr.add(0x8790DD8);
 
-var uploadImageX1;
+var uploadImageX1 = ptr(0);
 var imgCgiAddr = ptr(0);
 var sendImgMessageAddr = ptr(0);
 var imgMessageAddr = ptr(0);
 var imgProtoX1PayloadAddr = ptr(0);
 var uploadGlobalX0 = ptr(0)
 var uploadFunc1Addr = ptr(0)
-var uploadFunc1 = ptr(0)
 var uploadFunc2Addr = ptr(0)
-var uploadFunc2 = ptr(0)
 var imageIdAddr = ptr(0)
 var md5Addr = ptr(0)
 var uploadAesKeyAddr = ptr(0)
@@ -137,7 +140,7 @@ var globalAesKey1 = "";
 var globalMd5Key = "";
 
 // 发送消息的全局变量
-var taskIdGlobal = 0x20000090 // 最好比较大，不和原始的微信消息重复
+var taskIdGlobal = 0x0 // 最好比较大，不和原始的微信消息重复
 var receiverGlobal = "wxid_"
 var contentGlobal = "";
 var senderGlobal = "wxid_"
@@ -239,6 +242,7 @@ function setupSendImgMessageDynamic() {
     md5Addr = Memory.alloc(256);
     uploadAesKeyAddr = Memory.alloc(256);
     ImagePathAddr1 = Memory.alloc(256);
+    uploadImageX1 = Memory.alloc(1024);
 
     // A. 写入字符串内容
     patchString(imgCgiAddr, "/cgi-bin/micromsg-bin/uploadmsgimg");
@@ -270,45 +274,63 @@ function setupSendImgMessageDynamic() {
 
     console.log(" [+] Dynamic Memory Setup Complete. - Message Object: " + imgMessageAddr);
 
-
-    uploadFunc1Addr.writePointer(uploadFunc1);
-    uploadFunc2Addr.writePointer(uploadFunc2);
+    patchImgProtobufFunc1Byte = patchImgProtobufFunc1.readByteArray(4);
+    patchImgProtobufFunc2Byte = patchImgProtobufFunc2.readByteArray(4);
+    imgProtobufDeleteAddrByte = imgProtobufDeleteAddr.readByteArray(4);
 }
 
 setImmediate(setupSendImgMessageDynamic);
 
 
 function patchImgProtoBuf() {
-    Memory.patchCode(patchImgProtobufFunc1, 4, code => {
-        const cw = new Arm64Writer(code, {pc: patchImgProtobufFunc1});
-        cw.putNop();
-        cw.flush();
-    });
+    Interceptor.attach(imageCallbackFuncAddr, {
+        onEnter: function (args) {
+            var firstValue = this.context.sp.add(0x10).readU32();
+            console.log("[+] 捕获到 ImageCallbackFunc 调用，firstValue：", firstValue, "X1地址：", taskIdGlobal);
+            if (firstValue === taskIdGlobal) {
+                if (patchImgProtobufFunc1.readU32() !== 3573751839) {
+                    Memory.patchCode(patchImgProtobufFunc1, 4, code => {
+                        const cw = new Arm64Writer(code, {pc: patchImgProtobufFunc1});
+                        cw.putNop();
+                        cw.flush();
+                    });
+                    Memory.patchCode(patchImgProtobufFunc2, 4, code => {
+                        const cw = new Arm64Writer(code, {pc: patchImgProtobufFunc2});
+                        cw.putNop();
+                        cw.flush();
+                    });
+                    Memory.patchCode(imgProtobufDeleteAddr, 4, code => {
+                        const cw = new Arm64Writer(code, {pc: imgProtobufDeleteAddr});
+                        cw.putNop();
+                        cw.flush();
+                    });
+                }
+            } else {
+                if (patchImgProtobufFunc1.readU32() === 3573751839) {
+                    Memory.patchCode(patchImgProtobufFunc1, 4, code => {
+                        const cw = new Arm64Writer(code, {pc: patchImgProtobufFunc1});
+                        cw.putBytes(new Uint8Array(patchImgProtobufFunc1Byte));
+                        cw.flush();
+                    });
+                    Memory.patchCode(patchImgProtobufFunc2, 4, code => {
+                        const cw = new Arm64Writer(code, {pc: patchImgProtobufFunc2});
+                        cw.putBytes(new Uint8Array(patchImgProtobufFunc2Byte));
+                        cw.flush();
+                    });
+                    Memory.patchCode(imgProtobufDeleteAddr, 4, code => {
+                        const cw = new Arm64Writer(code, {pc: imgProtobufDeleteAddr});
+                        cw.putBytes(new Uint8Array(imgProtobufDeleteAddrByte));
+                        cw.flush();
+                    });
+                }
 
-    console.log("[+] Patching patchImgProtobufFunc1 " + patchImgProtobufFunc1 + " 成功.");
-
-    Memory.patchCode(patchImgProtobufFunc2, 4, code => {
-        const cw = new Arm64Writer(code, {pc: patchImgProtobufFunc2});
-        cw.putNop();
-        cw.flush();
-    });
-
-    console.log("[+] Patching patchImgProtobufFunc2 " + patchImgProtobufFunc2 + " 成功.");
-
-    Memory.patchCode(imgProtobufDeleteAddr, 4, code => {
-        const cw = new Arm64Writer(code, {pc: imgProtobufDeleteAddr});
-        cw.putNop();
-        cw.flush();
-    });
-
-    console.log("[+] Patching imgProtobufDeleteAddr " + imgProtobufDeleteAddr + " 成功.");
+            }
+        }
+    })
 }
 
+setImmediate(patchImgProtoBuf);
 
-setTimeout(function () {
-    console.log("[+] 2秒等待结束，准备执行 Patch...");
-    patchImgProtoBuf();
-}, 2000);
 
 function triggerSendImgMessage(taskId, sender, receiver) {
     console.log("[+] Manual Trigger Started...");
@@ -413,6 +435,13 @@ function attachProto() {
 
     Interceptor.attach(imgProtobufAddr, {
         onEnter: function (args) {
+
+            var currTaskId = this.context.sp.add(0x30).readU32();
+            if (currTaskId !== taskIdGlobal) {
+                console.log(`[+] 拦截到非目标 currTaskId: ${currTaskId} taskIdGlobal: ${taskIdGlobal}`);
+                return
+            }
+
             const type = [0x0A, 0x40, 0x0A, 0x01, 0x00]
             const msgId = [0x10].concat(generateRandom5ByteVarint())
             const cpHeader = [0x1A, 0x10]
@@ -591,7 +620,19 @@ function triggerUploadImg(receiver, md5, imagePath) {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x270
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,// 0x278
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,// 0x280
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 // 0x288
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x288
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x290
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x298
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x2a0
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x2a8
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x2b0
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x2b8
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x2c0
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x2c8
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x2d0
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x2d8
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0x2e0
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 // 0x2e8
     ]
 
     patchString(imageIdAddr, receiver + "_" + String(Math.floor(Date.now() / 1000)) + "_" + Math.floor(Math.random() * 1001) + "_1");
@@ -626,7 +667,6 @@ function attachUploadMedia() {
     Interceptor.attach(uploadImageAddr.add(0x10), {
         onEnter: function (args) {
             uploadGlobalX0 = this.context.x0;
-            uploadImageX1 = this.context.x1;
             const selfId = uploadImageX1.add(0x68).readUtf8String();
             const imagePath = uploadImageX1.add(0xe0).readPointer().readUtf8String();
             send({
@@ -646,6 +686,13 @@ function patchCdnOnComplete() {
 
             try {
                 const x2 = this.context.x2;
+                const currentFileId = x2.add(0x20).readPointer().readUtf8String();
+                const fileId = imageIdAddr.readUtf8String();
+                if (currentFileId !== fileId) {
+                    console.log("[-] CndOnComplete x2: " + x2 + " currentFileId: " + currentFileId + " fileId: " + fileId);
+                    return
+                }
+
                 globalImageCdnKey = x2.add(0x60).readPointer().readUtf8String();
                 globalAesKey1 = x2.add(0x78).readPointer().readUtf8String();
                 globalMd5Key = x2.add(0x90).readPointer().readUtf8String();

@@ -12,6 +12,10 @@ function setReceiver() {
     Interceptor.attach(buf2RespAddr, {
         onEnter: function (args) {
             const currentPtr = this.context.x1;
+            if (currentPtr.add(0).readU8() !== 0x08) {
+                return
+            }
+
             let start = 0x1e;
             let senderLen = currentPtr.add(start).readU8();
             if (senderLen !== 0x14 && senderLen !== 0x13) {
@@ -214,18 +218,25 @@ function getProtobufRawBytes(pBuffer, scanSize) {
                 let bytesReadForLen = 0;
                 i = i + 1;
 
+                let lenNum = 0;
                 while (i < uint8Array.length) {
                     let b = uint8Array[i];
                     length |= (b & 0x7F) << shift;
                     bytesReadForLen++;
                     i++;
+                    lenNum++;
                     if (!(b & 0x80)) break;
                     shift += 7;
                 }
 
                 // 2. 截取原始 Byte 数据
                 if (i + length <= uint8Array.length) {
-                    let rawData = uint8Array.slice(i, i + length);
+                    let addNum = 0
+                    if (targetTag === 0x12 || targetTag === 0x1A || targetTag === 0x2A) {
+                        addNum = lenNum + 1;
+                    }
+
+                    let rawData = uint8Array.slice(i + addNum, i + length);
                     if (targetTag === 0x42) {
                         finalResults.push(rawData);
                     } else {
@@ -322,7 +333,7 @@ function protobufVarintToNumberString(uint8Array) {
     let result = BigInt(0);
     let shift = BigInt(0);
 
-    for (let i = 0; i < uint8Array.length; i++) {
+    for (let i = 0; i < uint8Array?.length; i++) {
         const byte = uint8Array[i];
 
         // 1. 取出低 7 位并累加到结果中
